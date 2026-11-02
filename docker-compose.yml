@@ -169,6 +169,21 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # ---------------------------------------------------------------- Integration tests (on demand)
+  #   docker compose --profile test run --rm tests
+  tests:
+    profiles: ["test"]
+    build: ./backend
+    command: ["pytest"]
+    environment:
+      <<: *backend-env
+      API_URL: http://api:8000
+    depends_on:
+      api:
+        condition: service_healthy
+      worker:
+        condition: service_started
+
 volumes:
   pgdata:
   kafkadata:

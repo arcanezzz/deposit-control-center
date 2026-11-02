@@ -77,6 +77,11 @@ class OutboxRelay:
                     deposit_id = str(row["deposit_id"])
                     dispatch_id = payload["dispatch_id"]
 
+                    # Timestamp taken BEFORE handing the message to Kafka: the worker may consume it
+                    # (and write ATTEMPT_STARTED) before this transaction commits, and the timeline
+                    # must still show "published" before "attempt started".
+                    sent_at = await conn.fetchval("SELECT clock_timestamp()")
+
                     # Raises if Kafka is down -> transaction rolls back -> row stays unpublished.
                     meta = await self._publisher.publish(
                         key=row["message_key"],
@@ -84,14 +89,15 @@ class OutboxRelay:
                         headers={"deposit_id": deposit_id, "dispatch_id": dispatch_id},
                     )
 
-                    await conn.execute("UPDATE outbox SET published_at = clock_timestamp() WHERE id = $1", row["id"])
+                    await conn.execute("UPDATE outbox SET published_at = $2 WHERE id = $1", row["id"], sent_at)
                     event_type = "REPUBLISHED" if payload.get("reason") == "WATCHDOG" else "PUBLISHED"
                     await conn.execute(
-                        """INSERT INTO deposit_events (deposit_id, event_type, details)
-                           VALUES ($1, $2, $3::jsonb)""",
+                        """INSERT INTO deposit_events (deposit_id, event_type, details, created_at)
+                           VALUES ($1, $2, $3::jsonb, $4)""",
                         row["deposit_id"], event_type,
                         json.dumps({"topic": meta.topic, "partition": meta.partition, "offset": meta.offset,
                                     "dispatch_id": dispatch_id, "reason": payload.get("reason")}),
+                        sent_at,
                     )
             published += 1
             log.info("published deposit request to kafka", extra={
