@@ -144,7 +144,6 @@ docker compose up --build
 | [docs/DESIGN.md](docs/DESIGN.md) | Architecture, data model, consistency, recovery, idempotency, trade-offs |
 | [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md) | Each requirement in the assignment, where it's implemented and how to check it |
 | [decisions.md](decisions.md) | Decision log: alternatives, reasons, trade-offs |
-| [plan.md](plan.md) | The work plan in phases |
 
 ## Project structure
 
