@@ -280,4 +280,7 @@ Updated at the end of every phase. Decisions are grouped by area.
 | 4 | Amount input as text with client-side validation (not InputNumber) | InputNumber rounds silently (0.001 → 0.00) and hides the error. A text field shows the exact error |
 | 4 | nginx resolves `api` dynamically (`resolver 127.0.0.11`) | Restarting the API container (which gets a new IP) doesn't break the proxy |
 | 4 | The lock file was generated through a Node container (`npm install --package-lock-only`) | No Node needed on the machine; `npm ci` in the build is reproducible |
+| 5 | The `PUBLISHED` timestamp is taken **before** sending to Kafka | Bug found while preparing the API documentation: the worker consumed the message before the relay committed, and the timeline showed ATTEMPT_STARTED before PUBLISHED. Covered by a regression test |
+| 5 | Integration tests against the live system (not mocks) + direct parallel calls to `process_message` | Kafka and Postgres are real, so the guarantees are tested where they actually live. The direct calls really stress the locks, not only the sequential path through Kafka |
+| 5 | The tests create `TEST-xxxx` accounts | They don't change the demo balances. The tests can run on a live environment |
 | 3 | After a crash, the redelivered message is caught as `DUPLICATE_IGNORED` (status PROCESSING) and the recovery loop handles it after the lease | We don't try to "take over" a PROCESSING deposit from the message, because there's no way to know whether the original worker is still alive. The lease is the single source of truth |
