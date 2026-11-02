@@ -261,3 +261,9 @@ Updated at the end of every phase. Decisions are grouped by area.
 | 1 | The SQL folder was renamed from `app/db/` to `app/sql/` | Name clash with the module `app/db.py` |
 | 1 | `opening_balance` was added to accounts | Lets the balance invariant be verified (B4) |
 | 1 | A `REPUBLISHED` event type was added | Records a re-send by the PENDING watchdog (E3) |
+| 2 | The outbox relay is the only publishing path (the fast path is `kick()` that wakes it), instead of a separate direct publish | One code path for publishing means less duplication and fewer bugs. The latency is the same |
+| 2 | Each outbox row is published in its own short transaction (`LIMIT 1 FOR UPDATE SKIP LOCKED`) | A Kafka failure in the middle doesn't roll back messages that were already published |
+| 2 | The `PUBLISHED` event stores the partition and offset | An investigator can find the exact message in Kafka UI |
+| 2 | `/health` checks a real TCP connection to the broker | Bug found in testing: health reported `kafka: up` while Kafka was down, because it only checked that a producer object existed |
+| 2 | Status counts (`status_counts`) are returned in the search response and ignore the status filter | The summary tiles on the investigation screen without an extra request |
+| 2 | `amount` accepts a string or a JSON number but validates its **text**; a boolean is rejected (Strict types) | Exactness. A string is the recommendation in the documentation |

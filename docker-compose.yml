@@ -87,6 +87,28 @@ services:
         condition: service_healthy
     restart: "no"
 
+  # ---------------------------------------------------------------- REST API + outbox relay
+  api:
+    build: ./backend
+    command: ["uvicorn", "app.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]
+    environment: *backend-env
+    ports:
+      - "${API_HOST_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      # Kafka is intentionally NOT a hard dependency: thanks to the outbox the API accepts
+      # deposits even while Kafka is down; the relay publishes them once Kafka is back.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/health', timeout=4).status == 200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
   # ---------------------------------------------------------------- Data viewers (dev tools)
   adminer:
     image: adminer:4.8.1
