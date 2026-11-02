@@ -8,8 +8,12 @@ Every request goes through **real Apache Kafka** before the account is credited.
 Requirements: **Docker + Docker Compose only**. You don't need Node, Python, Java, Kafka or a database. The first run needs internet access to download images.
 
 ```bash
+git clone https://github.com/arcanezzz/deposit-control-center.git
+cd deposit-control-center
 docker compose up --build
 ```
+
+(Or extract the zip and run `docker compose up --build` from the project root.) The images for our own code (backend, frontend) are **built locally from the Dockerfiles in the repo**. Postgres and Kafka are pulled ready-made from Docker Hub.
 
 When everything is up (about 1–2 minutes on the first run), open:
 
