@@ -273,4 +273,11 @@ Updated at the end of every phase. Decisions are grouped by area.
 | 3 | The PENDING watchdog writes to the outbox and the API's relay publishes | The worker has no producer at all, so there's one publishing path. Trade-off: if the API is down, the re-send waits for it |
 | 3 | `stop_grace_period: 40s` on the worker | A regular `docker compose stop` lets an attempt with a 30-second simulated delay finish instead of cutting it off |
 | 3 | `failure_code` and `failure_reason` are kept after a retry until the next attempt starts | An employee can see on the table why it was retried. The full history is in the events anyway |
+| 4 | A new Idempotency-Key is generated **whenever a form field changes**. A repeat click with no change reuses the same key | An accidental repeat click never creates a second deposit. A genuinely new deposit = the "New request" button or changing a field |
+| 4 | The client distinguishes `ApiError` (the server answered) from `NetworkError` (no answer / timeout / 502) | With no answer the state is **unknown**, so the screen offers "resend with the same key". That's exactly the communication-uncertainty scenario in the assignment |
+| 4 | The investigation filters and the open deposit (`?deposit=`) are kept in the URL | They survive a refresh and the back button, and you can share a link to a specific deposit |
+| 4 | The last request is kept in localStorage | After a refresh, the execution screen keeps tracking the status |
+| 4 | Amount input as text with client-side validation (not InputNumber) | InputNumber rounds silently (0.001 → 0.00) and hides the error. A text field shows the exact error |
+| 4 | nginx resolves `api` dynamically (`resolver 127.0.0.11`) | Restarting the API container (which gets a new IP) doesn't break the proxy |
+| 4 | The lock file was generated through a Node container (`npm install --package-lock-only`) | No Node needed on the machine; `npm ci` in the build is reproducible |
 | 3 | After a crash, the redelivered message is caught as `DUPLICATE_IGNORED` (status PROCESSING) and the recovery loop handles it after the lease | We don't try to "take over" a PROCESSING deposit from the message, because there's no way to know whether the original worker is still alive. The lease is the single source of truth |

@@ -130,6 +130,21 @@ services:
     stop_grace_period: 40s
     restart: unless-stopped
 
+  # ---------------------------------------------------------------- Browser UI (nginx + React build)
+  frontend:
+    build: ./frontend
+    ports:
+      - "${UI_HOST_PORT:-8080}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
   # ---------------------------------------------------------------- Data viewers (dev tools)
   adminer:
     image: adminer:4.8.1
