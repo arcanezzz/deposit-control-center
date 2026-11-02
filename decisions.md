@@ -267,3 +267,10 @@ Updated at the end of every phase. Decisions are grouped by area.
 | 2 | `/health` checks a real TCP connection to the broker | Bug found in testing: health reported `kafka: up` while Kafka was down, because it only checked that a producer object existed |
 | 2 | Status counts (`status_counts`) are returned in the search response and ignore the status filter | The summary tiles on the investigation screen without an extra request |
 | 2 | `amount` accepts a string or a JSON number but validates its **text**; a boolean is rejected (Strict types) | Exactness. A string is the recommendation in the documentation |
+| 3 | The worker processes different partitions in parallel within a batch (`asyncio.gather`), with messages inside a partition processed in order | A delay on one account doesn't hold up deposits on other partitions in the same batch. Trade-off: the next poll waits for the slowest partition |
+| 3 | On an infrastructure error (DB down) the worker `seek`s back to the same message instead of committing | No message is lost. Kafka "re-reads" it after a backoff |
+| 3 | A poison message (invalid JSON or an unknown deposit) is logged and committed | It doesn't block the partition forever. It's recorded in the log for investigation |
+| 3 | The PENDING watchdog writes to the outbox and the API's relay publishes | The worker has no producer at all, so there's one publishing path. Trade-off: if the API is down, the re-send waits for it |
+| 3 | `stop_grace_period: 40s` on the worker | A regular `docker compose stop` lets an attempt with a 30-second simulated delay finish instead of cutting it off |
+| 3 | `failure_code` and `failure_reason` are kept after a retry until the next attempt starts | An employee can see on the table why it was retried. The full history is in the events anyway |
+| 3 | After a crash, the redelivered message is caught as `DUPLICATE_IGNORED` (status PROCESSING) and the recovery loop handles it after the lease | We don't try to "take over" a PROCESSING deposit from the message, because there's no way to know whether the original worker is still alive. The lease is the single source of truth |

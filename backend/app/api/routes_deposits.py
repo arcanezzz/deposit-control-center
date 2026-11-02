@@ -10,13 +10,16 @@ from app.api.deps import get_pool, get_relay
 from app.errors import ApiError
 from app.money import parse_amount
 from app.outbox_relay import OutboxRelay
-from app.schemas import DepositAccepted, DepositCreate, DepositDetail, DepositEvent, DepositPage
+from app.schemas import (DepositAccepted, DepositCreate, DepositDetail, DepositEvent, DepositPage,
+                         RetryRequest)
 from app.services import deposits as svc
 
 router = APIRouter(prefix="/api/deposits", tags=["deposits"])
 
 ACCEPTED_MESSAGE = ("The deposit request was accepted for processing. "
                     "The account has NOT been credited yet — track the status with the deposit_id.")
+RETRY_MESSAGE = ("Retry accepted: the same deposit is back in PENDING and was re-queued for processing. "
+                 "The account has NOT been credited yet.")
 REPLAY_MESSAGE = ("Idempotent replay: a deposit with this Idempotency-Key and the same data already exists. "
                   "Returned the existing deposit; nothing new was created or credited.")
 
@@ -91,3 +94,23 @@ async def get_deposit_events(deposit_id: UUID, pool: asyncpg.Pool = Depends(get_
         if not await conn.fetchval("SELECT EXISTS (SELECT 1 FROM deposits WHERE id = $1)", deposit_id):
             raise ApiError(404, "DEPOSIT_NOT_FOUND", f"Deposit {deposit_id} does not exist")
         return await svc.get_events(conn, deposit_id)
+
+
+@router.post(
+    "/{deposit_id}/retry",
+    status_code=202,
+    response_model=DepositAccepted,
+    summary="Retry a deposit that failed with a TRANSIENT failure",
+    responses={
+        202: {"description": "Retry accepted; deposit back to PENDING (same deposit, new dispatch)"},
+        404: {"description": "DEPOSIT_NOT_FOUND / EMPLOYEE_NOT_FOUND"},
+        409: {"description": "DEPOSIT_ALREADY_COMPLETED / PROCESSING_ALREADY_ACTIVE / PERMANENT_FAILURE"},
+    },
+)
+async def retry_deposit(deposit_id: UUID, body: RetryRequest, pool: asyncpg.Pool = Depends(get_pool),
+                        relay: OutboxRelay = Depends(get_relay)):
+    deposit = await svc.retry_deposit(pool, deposit_id, body.employee_id)
+    relay.kick()
+    payload = DepositAccepted(deposit_id=deposit["id"], status=deposit["status"], idempotent_replay=False,
+                              message=RETRY_MESSAGE, deposit=deposit).model_dump(mode="json")
+    return JSONResponse(payload, status_code=202, headers={"X-Deposit-Id": str(deposit_id)})

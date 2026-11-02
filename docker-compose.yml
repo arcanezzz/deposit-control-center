@@ -109,6 +109,27 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  # ---------------------------------------------------------------- Kafka consumer: the only place that credits
+  worker:
+    build: ./backend
+    command: ["python", "-m", "app.worker.main"]
+    environment:
+      <<: *backend-env
+      KAFKA_CONSUMER_GROUP: deposit-workers
+      PROCESSING_LEASE_SECONDS: ${PROCESSING_LEASE_SECONDS:-60}
+      RECOVERY_INTERVAL_SECONDS: ${RECOVERY_INTERVAL_SECONDS:-10}
+      PENDING_WATCHDOG_SECONDS: ${PENDING_WATCHDOG_SECONDS:-120}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      kafka-init:
+        condition: service_completed_successfully
+    # Let an in-flight attempt (max simulated delay 30s) finish on `docker compose stop`.
+    stop_grace_period: 40s
+    restart: unless-stopped
+
   # ---------------------------------------------------------------- Data viewers (dev tools)
   adminer:
     image: adminer:4.8.1

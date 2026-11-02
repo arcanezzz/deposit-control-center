@@ -226,3 +226,60 @@ async def get_events(conn: asyncpg.Connection, deposit_id: uuid.UUID) -> list[di
         item["details"] = json.loads(item["details"]) if isinstance(item["details"], str) else item["details"]
         result.append(item)
     return result
+
+
+async def retry_deposit(pool: asyncpg.Pool, deposit_id: uuid.UUID, employee_id: str) -> dict:
+    """Retry a TRANSIENT failure. Continues the SAME deposit (same id, amount, account, initiator).
+
+    Rules (checked under a row lock, so two concurrent retries can't both pass):
+      COMPLETED                 -> 409 DEPOSIT_ALREADY_COMPLETED
+      PENDING / PROCESSING      -> 409 PROCESSING_ALREADY_ACTIVE
+      FAILED, permanent         -> 409 PERMANENT_FAILURE
+      FAILED, retryable         -> PENDING + new dispatch_id + RETRY_REQUESTED(actor) + outbox row
+    The requesting employee is stored on the event (actor); deposits.employee_id (initiator) is untouched.
+    """
+    async with pool.acquire() as conn:
+        if not await _employee_exists(conn, employee_id):
+            raise ApiError(404, "EMPLOYEE_NOT_FOUND", f"Employee '{employee_id}' does not exist",
+                           {"field": "employee_id"})
+        async with conn.transaction():
+            d = await conn.fetchrow(
+                """SELECT id, status, failure_retryable, failure_code, account_id, current_dispatch_id, attempts
+                     FROM deposits WHERE id = $1 FOR UPDATE""", deposit_id)
+            if d is None:
+                raise ApiError(404, "DEPOSIT_NOT_FOUND", f"Deposit {deposit_id} does not exist")
+            if d["status"] == "COMPLETED":
+                raise ApiError(409, "DEPOSIT_ALREADY_COMPLETED",
+                               "The deposit is already completed and credited; a retry is not allowed",
+                               {"status": d["status"]})
+            if d["status"] in ("PENDING", "PROCESSING"):
+                raise ApiError(409, "PROCESSING_ALREADY_ACTIVE",
+                               f"A processing request for this deposit is already active (status {d['status']})",
+                               {"status": d["status"]})
+            if not d["failure_retryable"]:
+                raise ApiError(409, "PERMANENT_FAILURE",
+                               "The deposit failed permanently and cannot be retried",
+                               {"status": d["status"], "failure_code": d["failure_code"]})
+
+            new_dispatch = uuid.uuid4()
+            await conn.execute(
+                """UPDATE deposits
+                      SET status = 'PENDING', failure_retryable = NULL, current_dispatch_id = $2,
+                          updated_at = clock_timestamp()
+                    WHERE id = $1""", deposit_id, new_dispatch)
+            await conn.execute(
+                """INSERT INTO deposit_events (deposit_id, event_type, actor_employee_id, details)
+                   VALUES ($1, 'RETRY_REQUESTED', $2, $3::jsonb)""",
+                deposit_id, employee_id,
+                json.dumps({"previous_failure_code": d["failure_code"],
+                            "previous_dispatch_id": str(d["current_dispatch_id"]),
+                            "dispatch_id": str(new_dispatch), "attempts_so_far": d["attempts"]}))
+            await conn.execute(
+                "INSERT INTO outbox (deposit_id, message_key, payload) VALUES ($1, $2, $3::jsonb)",
+                deposit_id, d["account_id"],
+                json.dumps({"schema_version": 1, "deposit_id": str(deposit_id),
+                            "dispatch_id": str(new_dispatch), "reason": "RETRY"}))
+        row = await conn.fetchrow(DEPOSIT_SELECT + " WHERE d.id = $1", deposit_id)
+    log.info("retry requested", extra={"deposit_id": deposit_id, "dispatch_id": new_dispatch,
+                                       "employee_id": employee_id, "status": "PENDING"})
+    return _public(row)
